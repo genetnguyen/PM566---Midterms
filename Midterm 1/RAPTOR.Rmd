@@ -1,0 +1,221 @@
+---
+title: "RAPTOR Exploratory Data Analysis"
+author: "Eugene Nguyen"
+date: "10/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Libraries
+***
+```{r message = FALSE, warning = FALSE}
+library(tidyverse)
+library(skimr)
+library(ggfortify)
+```
+
+### Preliminary Data Setup
+***
+```{r}
+# Read Data
+df <- read.csv("C:/Users/Eugen/Desktop/PM 566/Midterm 1/nba-raptor/modern_RAPTOR_by_team.csv")
+```
+
+
+### Introduction
+***
+Statistics and methods in sports have always played a major impact on the way an organization runs.  Basic statistics such as averages, standard deviations, minimums, and maximums are typically utilized to determine if a player is “good” or not. This is hard to determine since team sports involve a high degree of variability. These include factors such as teammates, game situations, coach-player utilization, and team philosophy. Sabermetrics, the empirical analysis of baseball through statistics, boomed in the 80s and has been used as a tool to construct rosters. Other sports such as football and basketball have also developed their own advanced statistical models in wake of the sabermetrics boom. This paper will be focusing on a metric used for the modern NBA, RAPTOR. 
+
+RAPTOR stands for **R**obust **A**lgorithm **P**layer **T**racking **O**n/Off **R**atings. This metric uses advanced NBA statistics and models a RAPTOR value to each team and player. This statistic is an attempt to take advantage of the ever changing modern NBA. The modern NBA is played differently than how it was in the 70s to the 90s. Coaching philosophies have changed, and now high floor spacing and defense leading to shot creation has higher weight as opposed to traditional big-man skills. RAPTOR is calculated by fitting a regression model composed of traditional NBA metrics, player tracking data and play-by-play data. This report will primarily consist of an analysis that will determine the veracity of RAPTOR scores as a measure of success in the NBA.
+
+### Methods
+***
+Data was gathered from fivethiryeight’s repository (https://github.com/fivethirtyeight/data/tree/master/nba-raptor). Historical, modern, and latest RAPTOR data for players and teams were available for pull. For the purposes of this paper, modern team data was used to see the RAPTOR trend over time. The data set includes the following fields:
+
+```{r echo = FALSE}
+names(df)
+```
+As an outcome, the focus will be on `raptor_total`, `raptor_offense`, and `raptor_defense`. The dataset will also filter down to the regular season and exclude playoff metrics.
+
+```{r}
+# Filter to regular season
+df <- 
+  df %>%
+  filter(season_type == 'RS')
+```
+
+The `tidyverse` package and `ggplot2` were utilized to shape and visualize data for analysis. The package `skimr` is used to for basic descriptives across all fields to gather missing data, counts, averages, standard deviation, and percentiles. Basic regression modeling will be used to analyze the relationship between season 
+and `raptor_total`. The `ggfortify` package will be used to effectively run residual diagnositics on models.
+
+### Preliminary Results
+***
+First, the entirety of the dataset will be investigated:
+```{r}
+# Inspect Dataset
+skim(df)
+```
+
+The average `raptor_total` during the regular season across 7 seasons is -1.72 with a standard deviation of 6.29. `raptor_offense` has a much lower total (mean = -1.28, sd = 4.39) when compared to it's counterpart `raptor_defense (mean = -0.44, sd = 4.46). As minutes played and possessions are not accounted for, the 100th and 0th percentiles both have suspiciously extreme values. This may be due to players with low playtime and low possessions, and if they perform sufficiently well, RAPTOR values will be influenced accordingly. As a result, the data will be filtered to only include those ranging from the 25th and 75th percentiles in terms of possessions and minutes played.
+
+```{r}
+# Filter possessions and minutes played above the 50th percentile 
+df <- 
+  df %>%
+  filter(
+    (poss >= 1750) & 
+    (mp >= 854)
+  )
+```
+
+The newly filtered dataset:
+```{r}
+df %>%
+  select(poss, mp, raptor_offense, raptor_defense, raptor_total) %>%
+  skim()
+```
+
+With the new data, visualizations may be performed to assess the distributions of outcomes.
+
+
+#### Histogram of RAPTOR
+```{r}
+ggplot(data = df, aes(x = raptor_total)) +
+  geom_histogram(binwidth = 0.1) +
+  labs(x = "RAPTOR Total")
+```
+
+RAPTOR Total appears to be evenly distributed, but this is inclusive of season 2014 - 2020.
+
+#### Histogram of RAPTOR by Seasons
+```{r}
+ggplot(data = df, aes(x = raptor_total)) +
+  geom_histogram() +
+  facet_wrap( ~ season, scales = "free")
+```
+
+There appears to be a normal distribution throughout each season. When viewing the average RAPTOR by season, analyses seem to show that RAPTOR is steadily decreasing over time. This will be further investigated with a regression model.
+
+#### Average RAPTOR by Season
+```{r}
+ggplot(data = df, aes(x = factor(season), y = raptor_total)) +
+  geom_boxplot()
+```
+
+Diving further the following will investigate teams with the highest RAPTOR overall and by season.
+
+#### Teams with highest RAPTOR
+```{r}
+# Get averages by team
+raptor_hi <- 
+  df %>%
+  group_by(team) %>%
+  summarise(raptor.avg = mean(raptor_total)) %>%
+  arrange(desc(raptor.avg))
+
+# Plot
+ggplot(data = raptor_hi, aes(x = raptor.avg, y = reorder(team, raptor.avg))) +
+  geom_bar(stat = 'identity')
+```
+
+The San Antonio Spurs and Los Angeles Clippers are high performing teams as they have the top 2 highest average RAPTOR since 2014.
+
+#### Top teams with highest RAPTOR per Season
+```{r}
+df %>% 
+  group_by(season, team) %>%
+  summarise(raptor.avg = mean(raptor_total)) %>%
+  top_n(n=1,wt = raptor.avg)  %>%
+  arrange(season, desc(raptor.avg)) %>%
+  group_by(season) %>%
+  filter(row_number() <=1) %>%
+  knitr::kable()
+```
+
+The San Antonio Spurs consistently show up as the best team in terms of RAPTOR. Now that the teams have been analyzed, the following analyses will take a closer look at a player level.
+
+#### Players With Highest Average RAPTOR each Season
+```{r}
+df %>% 
+  group_by(season, player_name) %>%
+  summarise(raptor.avg = mean(raptor_total)) %>%
+  top_n(n=1,wt = raptor.avg)  %>%
+  arrange(season, raptor.avg) %>%
+  group_by(season) %>%
+  knitr::kable()
+```
+
+James Harden, Stephen Curry, and Chris Paul occur  the RAPTOR metric over the past few seasons.
+
+#### Who are the best and worst players when using a scale?
+
+Let's look at the latest season and determine who the best and worst players are based on z-scores.
+```{r}
+df2 <- 
+  df %>%
+  filter(season == 2020)
+```
+
+Adding a z-score:
+```{r}
+# Add z-score
+df2 <- 
+  df2 %>%
+  mutate(raptor.q = scale(raptor_total))
+```
+
+Players with z-score greater than or equal to 2 (The best players in the NBA)
+```{r}
+ggplot(data = df2, aes(x = raptor_offense, y = raptor_defense, label = player_name))+
+  geom_point() +
+  geom_text(aes(label=ifelse(raptor.q >= 2,as.character(player_name),'')),hjust=0,vjust=0) +
+  xlim(-5, 11)
+```
+
+Players with z-score less than or equal to -2 (The worst players in the NBA)
+```{r}
+ggplot(data = df2, aes(x = raptor_offense, y = raptor_defense, label = player_name))+
+  geom_point() +
+  geom_text(aes(label=ifelse(raptor.q <= -2,as.character(player_name),'')),hjust=0,vjust=0) +
+  xlim(-5, 10)
+```
+
+#### Is RAPTOR increasing over time?
+
+Regression will be utilized to determine if teams are becoming more efficient as time passes. All data will be utilized to effectively increase our power and sample size.
+```{r}
+# Re-import data
+df <- read.csv("C:/Users/Eugen/Desktop/PM 566/Midterm 1/nba-raptor/modern_RAPTOR_by_team.csv")
+
+# Filter to regular season
+df <- 
+  df %>%
+  filter(season_type == 'RS')
+```
+
+Run a linear regression:
+```{r}
+# Linear Regression
+m1 <- lm(raptor_total ~ season, data = df)
+summary(m1)
+```
+
+A linear regression was ran between total RAPTOR and season. Results show that as 1 unit of season increases, RAPTOR will increase by 0.103. These results are shown to be statistically significant, t = 2.08, p = 0.038. The assumptions of regression wil be analyzed through the inspection of the following plots:
+
+```{r}
+# Residual Diagnostics
+m1 %>%
+  autoplot(which = 1:6, ncol = 3)
+```
+
+According to the fitted values vs. residuals chart, results show that the data is linear. The QQ-plot shows a great deviation from the tails past |2|. When inspecting the square root of the standardized residuals, the data satisfies the equal variances assumption. There are no values with a Cook's Distance greater than or equal to 1, so we can safely say there are no influential observations.
+
+
+#### Conclusion
+***
+RAPTOR is a highly valued metric that can be used in a myriad of ways. The modern NBA requires a different skillset, which RAPTOR can account for. From the various analyses above, RAPTOR doesn't reliably identify the best team. With some data massaging, RAPTOR appears to reliably  identify the best players each season. Although the model detected a significant effect over time, this may be biased due to RAPTOR favoring the present state of play rather than the past. The limitations to RAPTOR is that it may easily fall out of favor due to the bias to certain player and team traits. Furthermore, the data can be quite nosy as it includes players with no impact in the game. Further research should include additional parameters to develop RAPTOR to evolve with the changing of the NBA.
+
+
+
